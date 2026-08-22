@@ -13,10 +13,10 @@ create index if not exists generation_history_user_id_idx on public.generation_h
 create index if not exists generation_history_created_at_idx on public.generation_history(created_at desc);
 alter table public.generation_history enable row level security;
 drop policy if exists "Users can view own generation history" on public.generation_history;
-create policy "Users can view own generation history" on public.generation_history for select using (auth.uid() = user_id);
+create policy "Users can view own generation history" on public.generation_history for select to authenticated using ((select auth.uid()) = user_id);
 drop policy if exists "Users can insert own generation history" on public.generation_history;
-create policy "Users can insert own generation history" on public.generation_history for insert with check (auth.uid() = user_id);
+create policy "Users can insert own generation history" on public.generation_history for insert to authenticated with check ((select auth.uid()) = user_id);
 drop policy if exists "Users can update own generation history" on public.generation_history;
-create policy "Users can update own generation history" on public.generation_history for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "Users can update own generation history" on public.generation_history for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists "Users can delete own generation history" on public.generation_history;
-create policy "Users can delete own generation history" on public.generation_history for delete using (auth.uid() = user_id);
+create policy "Users can delete own generation history" on public.generation_history for delete to authenticated using ((select auth.uid()) = user_id);
