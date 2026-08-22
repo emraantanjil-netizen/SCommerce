@@ -1,9 +1,7 @@
--- SCommerce initial schema
--- Apply this migration to Supabase project rtooucklshficdmmbgxu
-
+-- SCommerce legacy schema, kept idempotent for fresh installs and migration replays.
 create extension if not exists pgcrypto;
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text,
   store_name text,
@@ -12,8 +10,13 @@ create table public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists store_name text;
+alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists language text not null default 'en';
+alter table public.profiles add column if not exists workspace_name text not null default 'My SCommerce Workspace';
+alter table public.profiles add column if not exists onboarding_completed boolean not null default false;
 
-create table public.products (
+create table if not exists public.products (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
   name text not null, slug text not null, description text, price numeric(12,2) not null default 0 check (price >= 0),
   compare_at_price numeric(12,2), currency text not null default 'BDT', image_url text, images jsonb not null default '[]'::jsonb,
@@ -22,7 +25,7 @@ create table public.products (
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(), unique(user_id, slug)
 );
 
-create table public.product_pages (
+create table if not exists public.product_pages (
   id uuid primary key default gen_random_uuid(), product_id uuid not null unique references public.products(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade, slug text not null unique,
   theme jsonb not null default '{"primary":"#2F4156","teal":"#567C8D","sky":"#C8D9E6","beige":"#F5EFEB","white":"#FFFFFF"}'::jsonb,
@@ -30,7 +33,7 @@ create table public.product_pages (
   is_published boolean not null default false, published_at timestamptz, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 
-create table public.orders (
+create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(), product_id uuid not null references public.products(id) on delete restrict,
   seller_id uuid not null references auth.users(id) on delete cascade, order_number bigint generated always as identity unique,
   customer_name text not null, phone text not null, email text, address text not null, district text, area text,
@@ -42,21 +45,30 @@ create table public.orders (
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 
-create index products_user_id_idx on public.products(user_id);
-create index products_status_idx on public.products(status);
-create index product_pages_slug_idx on public.product_pages(slug);
-create index orders_seller_id_idx on public.orders(seller_id);
-create index orders_product_id_idx on public.orders(product_id);
-create index orders_status_idx on public.orders(status);
+create index if not exists products_user_id_idx on public.products(user_id);
+create index if not exists products_status_idx on public.products(status);
+create index if not exists product_pages_slug_idx on public.product_pages(slug);
+create index if not exists orders_seller_id_idx on public.orders(seller_id);
+create index if not exists orders_product_id_idx on public.orders(product_id);
+create index if not exists orders_status_idx on public.orders(status);
 
 create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path = public as $$
-begin insert into public.profiles (id, full_name) values (new.id, coalesce(new.raw_user_meta_data->>'full_name','')) on conflict (id) do nothing; return new; end; $$;
-create or replace trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
+begin
+  insert into public.profiles (id, full_name) values (new.id, coalesce(new.raw_user_meta_data->>'full_name','')) on conflict (id) do nothing;
+  return new;
+end; $$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
 
 create or replace function public.set_updated_at() returns trigger language plpgsql as $$ begin new.updated_at = now(); return new; end; $$;
+drop trigger if exists profiles_updated_at on public.profiles;
 create trigger profiles_updated_at before update on public.profiles for each row execute procedure public.set_updated_at();
+drop trigger if exists products_updated_at on public.products;
 create trigger products_updated_at before update on public.products for each row execute procedure public.set_updated_at();
+drop trigger if exists product_pages_updated_at on public.product_pages;
 create trigger product_pages_updated_at before update on public.product_pages for each row execute procedure public.set_updated_at();
+drop trigger if exists orders_updated_at on public.orders;
 create trigger orders_updated_at before update on public.orders for each row execute procedure public.set_updated_at();
 
 alter table public.profiles enable row level security;
@@ -64,30 +76,38 @@ alter table public.products enable row level security;
 alter table public.product_pages enable row level security;
 alter table public.orders enable row level security;
 
-create policy "profiles_select_own" on public.profiles for select using (auth.uid() = id);
-create policy "profiles_insert_own" on public.profiles for insert with check (auth.uid() = id);
-create policy "profiles_update_own" on public.profiles for update using (auth.uid() = id) with check (auth.uid() = id);
-create policy "products_select_own" on public.products for select using (auth.uid() = user_id);
-create policy "products_insert_own" on public.products for insert with check (auth.uid() = user_id);
-create policy "products_update_own" on public.products for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "products_delete_own" on public.products for delete using (auth.uid() = user_id);
-create policy "products_public_published" on public.products for select using (status = 'published');
-create policy "pages_select_own" on public.product_pages for select using (auth.uid() = user_id);
-create policy "pages_insert_own" on public.product_pages for insert with check (auth.uid() = user_id);
-create policy "pages_update_own" on public.product_pages for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "pages_delete_own" on public.product_pages for delete using (auth.uid() = user_id);
-create policy "pages_public_published" on public.product_pages for select using (is_published = true);
-create policy "orders_seller_select" on public.orders for select using (auth.uid() = seller_id);
-create policy "orders_seller_update" on public.orders for update using (auth.uid() = seller_id) with check (auth.uid() = seller_id);
-create policy "orders_public_insert" on public.orders for insert with check (exists (select 1 from public.products p where p.id = product_id and p.status = 'published' and p.user_id = seller_id));
+drop policy if exists "profiles_select_own" on public.profiles;
+create policy "profiles_select_own" on public.profiles for select to authenticated using ((select auth.uid()) = id);
+drop policy if exists "profiles_insert_own" on public.profiles;
+create policy "profiles_insert_own" on public.profiles for insert to authenticated with check ((select auth.uid()) = id);
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_update_own" on public.profiles for update to authenticated using ((select auth.uid()) = id) with check ((select auth.uid()) = id);
 
-create or replace function public.create_public_order(p_product_id uuid,p_customer_name text,p_phone text,p_email text default null,p_address text default '',p_district text default null,p_area text default null,p_quantity integer default 1,p_payment_method text default 'cod',p_transaction_id text default null,p_notes text default null)
-returns public.orders language plpgsql security definer set search_path = public as $$
-declare v_product public.products; v_order public.orders;
-begin
- select * into v_product from public.products where id = p_product_id and status = 'published';
- if not found then raise exception 'Product not available'; end if;
- insert into public.orders(product_id,seller_id,customer_name,phone,email,address,district,area,quantity,unit_price,payment_method,transaction_id,notes)
- values(v_product.id,v_product.user_id,p_customer_name,p_phone,p_email,p_address,p_district,p_area,p_quantity,payment_method,p_transaction_id,p_notes) returning * into v_order;
- return v_order;
-end; $$;
+drop policy if exists "products_select_own" on public.products;
+create policy "products_select_own" on public.products for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "products_insert_own" on public.products;
+create policy "products_insert_own" on public.products for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "products_update_own" on public.products;
+create policy "products_update_own" on public.products for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists "products_delete_own" on public.products;
+create policy "products_delete_own" on public.products for delete to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "products_public_published" on public.products;
+create policy "products_public_published" on public.products for select to anon, authenticated using (status = 'published');
+
+drop policy if exists "pages_select_own" on public.product_pages;
+create policy "pages_select_own" on public.product_pages for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "pages_insert_own" on public.product_pages;
+create policy "pages_insert_own" on public.product_pages for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "pages_update_own" on public.product_pages;
+create policy "pages_update_own" on public.product_pages for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists "pages_delete_own" on public.product_pages;
+create policy "pages_delete_own" on public.product_pages for delete to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "pages_public_published" on public.product_pages;
+create policy "pages_public_published" on public.product_pages for select to anon, authenticated using (is_published = true);
+
+drop policy if exists "orders_seller_select" on public.orders;
+create policy "orders_seller_select" on public.orders for select to authenticated using ((select auth.uid()) = seller_id);
+drop policy if exists "orders_seller_update" on public.orders;
+create policy "orders_seller_update" on public.orders for update to authenticated using ((select auth.uid()) = seller_id) with check ((select auth.uid()) = seller_id);
+drop policy if exists "orders_public_insert" on public.orders;
+create policy "orders_public_insert" on public.orders for insert to anon, authenticated with check (exists (select 1 from public.products p where p.id = product_id and p.status = 'published' and p.user_id = seller_id));
