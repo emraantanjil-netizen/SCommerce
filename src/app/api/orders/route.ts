@@ -7,10 +7,12 @@ export async function POST(req: Request) {
     const productId = String(form.get('product_id') || '')
     const customerName = String(form.get('customer_name') || '').trim()
     const phone = String(form.get('phone') || '').trim()
+    const email = String(form.get('email') || '').trim()
     const address = String(form.get('address') || '').trim()
     const district = String(form.get('district') || '').trim()
     const area = String(form.get('area') || '').trim()
     const quantity = Number(form.get('quantity') || 1)
+    const notes = String(form.get('notes') || '').trim()
 
     if (!productId || !customerName || !phone || !address) {
       return NextResponse.json({ error: 'Name, phone, address and product are required.' }, { status: 400 })
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
 
     const { data: settings, error: settingsError } = await s
       .from('store_settings')
-      .select('inside_dhaka_delivery,outside_dhaka_delivery,cod_enabled,currency')
+      .select('cod_enabled')
       .eq('user_id', product.user_id)
       .maybeSingle()
 
@@ -42,35 +44,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Cash on delivery is currently unavailable.' }, { status: 400 })
     }
 
-    const normalizedDistrict = district.toLowerCase().replace(/\s+/g, ' ').trim()
-    const insideDhaka = ['dhaka', 'ঢাকা', 'dhaka city', 'dhaka metropolitan'].includes(normalizedDistrict)
-    const deliveryCharge = Number(insideDhaka ? settings?.inside_dhaka_delivery ?? 80 : settings?.outside_dhaka_delivery ?? 120)
-    const unitPrice = Number(product.price)
-
-    if (!Number.isFinite(unitPrice) || unitPrice < 0 || !Number.isFinite(deliveryCharge) || deliveryCharge < 0) {
-      return NextResponse.json({ error: 'Invalid product or delivery pricing.' }, { status: 400 })
-    }
-
-    // The database RPC remains the single source of truth for order creation and totals.
-    // Delivery and COD rules are validated here before the public order is created.
     const { data, error } = await s.rpc('create_public_order', {
       p_product_id: productId,
       p_customer_name: customerName,
       p_phone: phone,
+      p_email: email || null,
       p_address: address,
-      p_district: district,
-      p_area: area,
+      p_district: district || null,
+      p_area: area || null,
       p_quantity: quantity,
       p_payment_method: 'cod',
-      p_delivery_charge: deliveryCharge,
+      p_transaction_id: null,
+      p_notes: notes || null,
     })
 
     if (error || !data) {
-      // Keep a clear message if the currently deployed RPC has not yet been updated
-      // to accept p_delivery_charge. This prevents silently recording a wrong total.
-      if (error?.message?.includes('p_delivery_charge')) {
-        return NextResponse.json({ error: 'Order database function needs to be updated for delivery charges.' }, { status: 503 })
-      }
       return NextResponse.json({ error: error?.message || 'Order could not be created' }, { status: 400 })
     }
 
