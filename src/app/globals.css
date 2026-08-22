@@ -1,0 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Bengali:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --bg:#f7f8fc; --card:#fff; --text:#101828; --muted:#667085; --line:#e4e7ec; --brand:#2f4156; --accent:#567c8d; }
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { margin:0; background:var(--bg); color:var(--text); font-family:Inter,'Noto Sans Bengali',sans-serif; }
+button,input,textarea,select { font:inherit; }
+a { color:inherit; text-decoration:none; }
