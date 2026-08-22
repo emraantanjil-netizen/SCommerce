@@ -7,6 +7,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('onboarding_completed')
+    .eq('id', user.id)
+    .maybeSingle()
+
+  if (!profile?.onboarding_completed) redirect('/onboarding')
+
   return (
     <div className="min-h-screen bg-beige text-brand">
       <header className="sticky top-0 z-20 border-b border-brand/5 bg-white/95 backdrop-blur">
